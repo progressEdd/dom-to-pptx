@@ -166,6 +166,6 @@
     "opentype.js": "^2.0.0",
     "pako": "^2.1.0",
     "pptxgenjs": "^4.0.1",
-    "puppeteer": "^25.1.0"
+    "puppeteer": "23.11.1"
   }
 }
