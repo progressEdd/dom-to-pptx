@@ -225,6 +225,7 @@ export async function exportHtmlToPptx(htmlSource, options = {}) {
     }
 
     // 1. Navigate to HTML source (file path or URL)
+    let inlineHtmlContent = false;
     if (fs.existsSync(htmlSource)) {
       const absolutePath = path.resolve(htmlSource);
       // Use proper file:// URL (handles Windows drive letters)
@@ -242,6 +243,7 @@ export async function exportHtmlToPptx(htmlSource, options = {}) {
       }
     } else {
       // Inline HTML content fallback
+      inlineHtmlContent = true;
       try {
         await page.setContent(htmlSource, { waitUntil: 'networkidle0' });
       } catch (err) {
@@ -282,8 +284,12 @@ export async function exportHtmlToPptx(htmlSource, options = {}) {
     const captureViewport = resolveCaptureViewport(pinnedViewport, designRect);
     if (captureViewport) {
       await page.setViewport(captureViewport);
-      // re-resolve styles + the page's own resize handlers at design size
-      await page.reload({ waitUntil: 'networkidle0' });
+      // re-resolve styles + the page's own resize handlers at design size.
+      // Reloading would drop inline setContent content (and re-setContent
+      // can hang on networkidle0), so inline pages only get the resize.
+      if (!inlineHtmlContent) {
+        await page.reload({ waitUntil: 'networkidle0' });
+      }
     }
 
     // 2. Check for dom-to-pptx presence
