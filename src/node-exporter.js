@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { resolveCaptureViewport } from './utils.js';
 
 /**
  * Compute the browser launch args for a given Puppeteer product.
@@ -246,6 +247,43 @@ export async function exportHtmlToPptx(htmlSource, options = {}) {
       } catch (err) {
         throw new Error(`Failed to set inline HTML content: ${err.message}`);
       }
+    }
+
+    // (fix/font-design-viewport) Decks that size type against the viewport
+    // (Marp @auto-scaling, vw/rem themes) resolve used font sizes from the
+    // window size, not from the slide's design size. When the caller did
+    // not pin a viewport, capture at the first slide element's own design
+    // rect so every computed style matches the deck's reference rendering.
+    // SVG-wrapped slides (Marp bespoke decks) stretch their svg viewBox to
+    // fill the window, so getBoundingClientRect tracks the viewport, not
+    // the design — prefer the svg viewBox / foreignObject size there.
+    const pinnedViewport = options.browserWidth && options.browserHeight
+      ? { width: options.browserWidth, height: options.browserHeight }
+      : null;
+    const designRect = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const svg = el.closest('svg');
+      if (svg) {
+        const vb = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+        if (vb.length === 4 && vb[2] > 0 && vb[3] > 0) {
+          return { width: vb[2], height: vb[3] };
+        }
+        const fo = el.closest('foreignObject');
+        const foW = fo ? parseFloat(fo.getAttribute('width')) : NaN;
+        const foH = fo ? parseFloat(fo.getAttribute('height')) : NaN;
+        if (foW > 0 && foH > 0) return { width: foW, height: foH };
+      }
+      const r = el.getBoundingClientRect();
+      return r && r.width > 0 && r.height > 0
+        ? { width: r.width, height: r.height }
+        : null;
+    }, options.selector || '.slide');
+    const captureViewport = resolveCaptureViewport(pinnedViewport, designRect);
+    if (captureViewport) {
+      await page.setViewport(captureViewport);
+      // re-resolve styles + the page's own resize handlers at design size
+      await page.reload({ waitUntil: 'networkidle0' });
     }
 
     // 2. Check for dom-to-pptx presence
